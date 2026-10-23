@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/PPTAssistant.App/Assets/PPTA.png" alt="PPTAssistant 图标" width="160">
+  <img src="src/PPTAssistant.App/Assets/PPTA.png" alt="PPTAssistant 图标" width="480">
 </p>
 
 # PPTAssistant
