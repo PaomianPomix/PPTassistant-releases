@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PPTAssistant.Toolbar</RootNamespace>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PPTAssistant.Coords\PPTAssistant.Coords.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Overlay\PPTAssistant.Overlay.csproj" />
+  </ItemGroup>
+
+</Project>

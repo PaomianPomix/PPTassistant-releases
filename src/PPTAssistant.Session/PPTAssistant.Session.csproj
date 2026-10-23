@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PPTAssistant.Session</RootNamespace>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PPTAssistant.Host\PPTAssistant.Host.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Coords\PPTAssistant.Coords.csproj" />
+    <ProjectReference Include="..\PPTAssistant.InkML\PPTAssistant.InkML.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Package\PPTAssistant.Package.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Overlay\PPTAssistant.Overlay.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Toolbar\PPTAssistant.Toolbar.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PPTAssistant.Package</RootNamespace>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PPTAssistant.Coords\PPTAssistant.Coords.csproj" />
+    <ProjectReference Include="..\PPTAssistant.InkML\PPTAssistant.InkML.csproj" />
+  </ItemGroup>
+
+</Project>

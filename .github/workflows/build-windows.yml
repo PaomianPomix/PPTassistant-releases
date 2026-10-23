@@ -1,0 +1,80 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (major.minor.patch)
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and test
+        shell: pwsh
+        run: |
+          dotnet build src/PPTAssistant.sln -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+          dotnet test src/PPTAssistant.Tests/PPTAssistant.Tests.csproj -c Release --no-build --no-restore --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+      - name: Build installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/build-release.ps1 -Version $env:RELEASE_VERSION
+      - name: Verify installation, launch and uninstall
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Resolve-Path "artifacts/release/PPTAssistant-$env:RELEASE_VERSION-win-x64-Setup.exe").Path
+          $installRoot = Join-Path $env:RUNNER_TEMP 'PPTAssistant Install Test'
+          $setup = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$installRoot`"" -WindowStyle Hidden -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
+          foreach ($name in @('PPTAssistant.exe', 'PPTAssistant.dll', 'PPTAssistant.ico', 'coreclr.dll', 'PresentationFramework.dll', 'unins000.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $installRoot $name))) { throw "Missing installed file: $name" }
+          }
+          $exe = Join-Path $installRoot 'PPTAssistant.exe'
+          $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
+          if ($actualVersion -ne "$env:RELEASE_VERSION.0") { throw "Unexpected version: $actualVersion" }
+          $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'PPTAssistant.lnk'
+          if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Start menu shortcut is missing.' }
+          $userData = Join-Path $env:LOCALAPPDATA 'PPTAssistant'
+          New-Item -ItemType Directory -Path $userData -Force | Out-Null
+          $sentinel = Join-Path $userData 'installation-test.txt'
+          Set-Content -LiteralPath $sentinel -Value 'Preserve user data'
+          $app = Start-Process -FilePath $exe -ArgumentList '--autostart' -WindowStyle Hidden -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $app.Refresh()
+            if ($app.HasExited) { throw "Application exited during startup: $($app.ExitCode)" }
+          }
+          finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force; $app.WaitForExit() }
+          }
+          $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          New-Item -Path $runKey -Force | Out-Null
+          New-ItemProperty -Path $runKey -Name PPTAssistant -Value "`"$exe`" --autostart" -PropertyType String -Force | Out-Null
+          $uninstaller = Join-Path $installRoot 'unins000.exe'
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -WindowStyle Hidden -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed: $($uninstall.ExitCode)" }
+          if (Test-Path -LiteralPath $exe) { throw 'Uninstall left the application executable behind.' }
+          if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall left the start menu shortcut behind.' }
+          if (-not (Test-Path -LiteralPath $sentinel)) { throw 'Uninstall removed user data.' }
+          if ($null -ne (Get-ItemProperty -Path $runKey -Name PPTAssistant -ErrorAction SilentlyContinue)) { throw 'Uninstall left its startup entry behind.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PPTAssistant-windows-${{ inputs.version }}
+          path: artifacts/release/*
+          if-no-files-found: error

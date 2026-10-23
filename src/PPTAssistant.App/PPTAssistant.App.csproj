@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>PPTAssistant.App</RootNamespace>
+    <AssemblyName>PPTAssistant</AssemblyName>
+    <ApplicationIcon>Assets\PPTA.ico</ApplicationIcon>
+    <UseWPF>true</UseWPF>
+    <StartupObject>PPTAssistant.App.Program</StartupObject>
+    <DisableWinExeOutputInference>false</DisableWinExeOutputInference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\PPTA.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PPTAssistant.Coords\PPTAssistant.Coords.csproj" />
+    <ProjectReference Include="..\PPTAssistant.InkML\PPTAssistant.InkML.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Host\PPTAssistant.Host.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Overlay\PPTAssistant.Overlay.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Toolbar\PPTAssistant.Toolbar.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Session\PPTAssistant.Session.csproj" />
+  </ItemGroup>
+
+</Project>

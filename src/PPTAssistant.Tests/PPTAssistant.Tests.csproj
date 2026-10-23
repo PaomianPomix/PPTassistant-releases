@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>PPTAssistant.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PPTAssistant.App\PPTAssistant.App.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Coords\PPTAssistant.Coords.csproj" />
+    <ProjectReference Include="..\PPTAssistant.InkML\PPTAssistant.InkML.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Package\PPTAssistant.Package.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Host\PPTAssistant.Host.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Overlay\PPTAssistant.Overlay.csproj" />
+    <ProjectReference Include="..\PPTAssistant.Session\PPTAssistant.Session.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,26 @@
+# 统一换行符处理，避免 Windows 下的 CRLF 噪声
+* text=auto
+
+# 源码与文档视为文本
+*.cs    text
+*.md    text
+*.py    text
+*.json  text
+*.yml   text
+*.yaml  text
+*.csproj text
+*.sln   text
+*.ini   text
+*.config text
+*.nsi   text
+
+# 二进制资源不做换行转换
+*.exe       binary
+*.dll       binary
+*.zip       binary
+*.resources binary
+*.ico       binary
+*.png       binary
+*.jpg       binary
+*.bin       binary
+*.csv       text
