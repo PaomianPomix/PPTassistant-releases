@@ -12,6 +12,7 @@ internal enum ToolIconKind
     Pen,
     Eraser,
     Magnifier,
+    Whiteboard,
     Palette,
     Brush,
     Exit,
@@ -139,6 +140,12 @@ internal static class ToolIcons
                 }
 
                 yield return (new LineGeometry(new Point(15.3, 15.3), new Point(21.2, 21.2)), IconPaint.Stroke);
+                break;
+
+            case ToolIconKind.Whiteboard:
+                yield return (new RectangleGeometry(new Rect(3, 4, 18, 13), 1.2, 1.2), selected ? IconPaint.Fill : IconPaint.Stroke);
+                yield return (Poly("M7,12 L10,9 L13,12 L17,8"), selected ? IconPaint.HighlightStroke : IconPaint.Stroke);
+                yield return (Poly("M12,17 L12,21 M8,21 L16,21"), IconPaint.Stroke);
                 break;
 
             case ToolIconKind.Palette:

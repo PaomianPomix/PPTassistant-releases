@@ -83,7 +83,7 @@ public class UiScalePolicyTests
     {
         var screen = new DipRect(-width, -height, width, height);
         var metrics = UiMetrics.For(width);
-        var centerWidth = UiMetrics.RowWidth(metrics, [3, 1, 2, 1]);
+        var centerWidth = UiMetrics.RowWidth(metrics, [3, 2, 2, 1]);
         var cornerWidth = UiMetrics.CornerBarWidth(metrics);
         var contentHeight = metrics.ButtonSize + (2 * UiMetrics.PanelBorderThickness);
         const double gap = 8;

@@ -3,14 +3,14 @@
 .SYNOPSIS
 Build the self-contained Windows x64 application and its per-user installer.
 .EXAMPLE
-./scripts/build-release.ps1 -Version 1.0.0
+./scripts/build-release.ps1 -Version 1.1.0
 .EXAMPLE
-./scripts/build-release.ps1 -Version 1.0.0 -DotnetPath C:/dotnet/dotnet.exe -IsccPath 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe'
+./scripts/build-release.ps1 -Version 1.1.0 -DotnetPath C:/dotnet/dotnet.exe -IsccPath 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe'
 #>
 [CmdletBinding()]
 param(
     [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
-    [string] $Version = '1.0.0',
+    [string] $Version = '1.1.0',
     [string] $DotnetPath,
     [string] $IsccPath
 )

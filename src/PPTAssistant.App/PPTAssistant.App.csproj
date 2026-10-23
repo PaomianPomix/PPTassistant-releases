@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <Resource Include="Assets\PPTA.ico" />
+    <Resource Include="Assets\PPTA.png" />
   </ItemGroup>
 
   <ItemGroup>

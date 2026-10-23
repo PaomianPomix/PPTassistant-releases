@@ -6,7 +6,7 @@ on:
       version:
         description: Release version (major.minor.patch)
         required: true
-        default: '1.0.0'
+        default: '1.1.0'
 
 permissions:
   contents: read
@@ -45,11 +45,19 @@ jobs:
           foreach ($name in @('PPTAssistant.exe', 'PPTAssistant.dll', 'PPTAssistant.ico', 'coreclr.dll', 'PresentationFramework.dll', 'unins000.exe')) {
             if (-not (Test-Path -LiteralPath (Join-Path $installRoot $name))) { throw "Missing installed file: $name" }
           }
+          $sourceIconHash = (Get-FileHash 'src/PPTAssistant.App/Assets/PPTA.ico' -Algorithm SHA256).Hash
+          $installedIconHash = (Get-FileHash (Join-Path $installRoot 'PPTAssistant.ico') -Algorithm SHA256).Hash
+          if ($sourceIconHash -ne $installedIconHash) { throw 'The installed icon does not match the release source.' }
           $exe = Join-Path $installRoot 'PPTAssistant.exe'
           $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
           if ($actualVersion -ne "$env:RELEASE_VERSION.0") { throw "Unexpected version: $actualVersion" }
           $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'PPTAssistant.lnk'
           if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Start menu shortcut is missing.' }
+          $shell = New-Object -ComObject WScript.Shell
+          $link = $shell.CreateShortcut($shortcut)
+          if ($link.IconLocation -ne "$(Join-Path $installRoot 'PPTAssistant.ico'),0") { throw 'Start menu shortcut uses an unexpected icon.' }
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($link)
+          [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell)
           $userData = Join-Path $env:LOCALAPPDATA 'PPTAssistant'
           New-Item -ItemType Directory -Path $userData -Force | Out-Null
           $sentinel = Join-Path $userData 'installation-test.txt'

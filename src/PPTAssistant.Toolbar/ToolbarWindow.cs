@@ -12,7 +12,7 @@ namespace PPTAssistant.Toolbar;
 public sealed class ToolbarWindow : Window, IToolbarView
 {
 
-    private static readonly int[] GroupSizes = [3, 1, 2, 1];
+    private static readonly int[] GroupSizes = [3, 2, 2, 1];
 
     internal const int EraserLongPressMilliseconds = 800;
 
@@ -70,6 +70,7 @@ public sealed class ToolbarWindow : Window, IToolbarView
         _penButton = Add(ToolIconKind.Pen, "笔（书写模式：触摸不再穿透给 PPT）", () => PenModeRequested?.Invoke(this, true));
         _eraserButton = Add(ToolIconKind.Eraser, "橡皮（点击进入擦除；长按清空本页板书）", OnEraserClicked);
         _magnifierButton = Add(ToolIconKind.Magnifier, "放大镜（1.0–3.0×，滚轮调倍率）", () => MagnifierToggleRequested?.Invoke(this, EventArgs.Empty));
+        Add(ToolIconKind.Whiteboard, "白板（独立分页板书，可随时返回放映）", () => WhiteboardRequested?.Invoke(this, EventArgs.Empty));
         _paletteButton = Add(ToolIconKind.Palette, "色板（预设 / 最近使用 / 任意 RGB）", () => PaletteToggleRequested?.Invoke(this, EventArgs.Empty));
         _brushButton = Add(ToolIconKind.Brush, "笔刷（无级调节笔宽 2–50）", () => PenBrushToggleRequested?.Invoke(this, EventArgs.Empty));
         Add(ToolIconKind.Exit, "退出放映", () => ExitShowRequested?.Invoke(this, EventArgs.Empty));
@@ -243,6 +244,9 @@ public sealed class ToolbarWindow : Window, IToolbarView
 
     /// <inheritdoc />
     public event EventHandler? ExitShowRequested;
+
+    /// <summary>打开独立白板（由应用层暂停放映工具并显示白板窗口）。</summary>
+    public event EventHandler? WhiteboardRequested;
 
     /// <inheritdoc />
     public void ShowOn(ScreenInfo screen)

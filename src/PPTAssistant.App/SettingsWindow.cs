@@ -32,6 +32,7 @@ internal sealed class SettingsWindow : Window
         Func<CancellationToken, Task<UpdateCheckResult>> onCheckUpdate, Action<Uri> onOpenRelease)
     {
         Title = "PPTAssistant 设置";
+        Icon = ApplicationIcon.WindowIcon;
         Width = Math.Min(940, SystemParameters.WorkArea.Width);
         Height = Math.Min(740, SystemParameters.WorkArea.Height);
         MinWidth = Math.Min(780, SystemParameters.WorkArea.Width);
@@ -177,11 +178,14 @@ internal sealed class SettingsWindow : Window
         sidebar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         sidebar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var brand = new DockPanel { Margin = new Thickness(8, 0, 0, 24) };
-        brand.Children.Add(new Border
+        var brandImage = new Image
         {
-            Background = SettingsUi.Text, CornerRadius = new CornerRadius(5), Width = 27, Height = 29, Margin = new Thickness(0, 0, 9, 0),
-            Child = new TextBlock { Text = "P", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-        });
+            Source = ApplicationIcon.BrandImage, Width = 27, Height = 29,
+            Margin = new Thickness(0, 0, 9, 0), Stretch = Stretch.Uniform,
+        };
+        RenderOptions.SetBitmapScalingMode(brandImage, BitmapScalingMode.HighQuality);
+        SettingsUi.Identify(brandImage, "SettingsBrandImage", "PPTAssistant 图标");
+        brand.Children.Add(brandImage);
         brand.Children.Add(SettingsUi.Label("PPTAssistant", 14, true));
         sidebar.Children.Add(brand);
         var searchGrid = new Grid { Margin = new Thickness(0, 0, 0, 24) };

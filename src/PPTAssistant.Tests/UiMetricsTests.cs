@@ -101,11 +101,11 @@ public class UiMetricsTests
     {
         var standard = UiMetrics.Standard;
 
-        // 我们的中央条分四组：书写 3 + 放大镜 1 + 外观 2 + 退出 1。
-        var width = UiMetrics.RowWidth(standard, [3, 1, 2, 1]);
+        // 中央条分四组：书写 3 + 放大镜/白板 2 + 外观 2 + 退出 1。
+        var width = UiMetrics.RowWidth(standard, [3, 2, 2, 1]);
 
-        Assert.Equal((7 * 50) + (4 * 2) + (3 * 4), width, 6);
-        Assert.Equal(370, width, 6);
+        Assert.Equal((8 * 50) + (4 * 2) + (3 * 4), width, 6);
+        Assert.Equal(420, width, 6);
 
         // 只有一个胶囊时没有空隙、只有自身描边。
         Assert.Equal(50 + 2, UiMetrics.RowWidth(standard, [1]), 6);
@@ -136,7 +136,7 @@ public class UiMetricsTests
     {
         var screen = new DipRect(0, 0, width, height);
         var metrics = UiMetrics.For(width);
-        var centerWidth = UiMetrics.RowWidth(metrics, [3, 1, 2, 1]);
+        var centerWidth = UiMetrics.RowWidth(metrics, [3, 2, 2, 1]);
         var cornerWidth = UiMetrics.CornerBarWidth(metrics);
         var cornerHeight = UiMetrics.CornerBarHeight(metrics);
 

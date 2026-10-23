@@ -29,6 +29,7 @@ internal sealed class AppHost : IDisposable
     private PenPaletteWindow? _penPalette;
     private PenBrushWindow? _penBrush;
     private SettingsWindow? _settings;
+    private WhiteboardController? _whiteboard;
     private PptHostWatcher? _watcher;
     private PresentationSession? _session;
     private bool _disposed;
@@ -79,8 +80,13 @@ internal sealed class AppHost : IDisposable
             prompt: _prompt,
             penPalette: _penPalette,
             penBrush: _penBrush);
+        _whiteboard = new WhiteboardController(_session, () => _config.SanitizedUiScale,
+            message => _tray?.ShowBalloon("白板", message));
+        _whiteboard.VisibilityChanged += (_, _) => _tray?.RefreshTooltip();
+        _toolbar.WhiteboardRequested += (_, _) => OpenWhiteboard();
         _session.StateChanged += (_, _) =>
         {
+            _whiteboard.OnSessionStateChanged();
             _tray?.RefreshTooltip();
             // 设置逐项即时保存；开场收起已打开的设置页，避免放映中改尺寸与抢焦点。
             if (_session.State == SessionState.Presenting)
@@ -170,6 +176,7 @@ internal sealed class AppHost : IDisposable
         _disposed = true;
         AppLog.Info("开始关闭");
 
+        Safe(() => _whiteboard?.Dispose(), "白板");
         Safe(() => _session?.Dispose(), "会话");
         Safe(() => _watcher?.Dispose(), "宿主监视器");
         Safe(() => _settings?.Close(), "设置页");
@@ -225,6 +232,7 @@ internal sealed class AppHost : IDisposable
 
     private string BuildStatus()
     {
+        if (_whiteboard?.IsVisible == true) return "PPTAssistant 白板使用中";
         var session = _session;
         if (session is null)
         {
@@ -244,6 +252,9 @@ internal sealed class AppHost : IDisposable
     {
         switch (command)
         {
+            case TrayCommand.OpenWhiteboard:
+                OpenWhiteboard();
+                break;
             case TrayCommand.OpenSettings:
                 OpenSettings();
                 break;
@@ -264,6 +275,13 @@ internal sealed class AppHost : IDisposable
             default:
                 break;
         }
+    }
+
+    private void OpenWhiteboard()
+    {
+        _settings?.Close();
+        _whiteboard?.Open();
+        _tray?.RefreshTooltip();
     }
 
     private void OpenSettings()

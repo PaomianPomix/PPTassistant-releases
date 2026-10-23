@@ -1,11 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$Source = (Join-Path $PSScriptRoot '..\src\PPTAssistant.App\Assets\PPTA.png'),
-    [string]$Destination = (Join-Path $PSScriptRoot '..\src\PPTAssistant.App\Assets\PPTA.ico')
+    [string]$Source,
+    [string]$Destination
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, WindowsBase
+
+# Resolve script-relative defaults after parameter binding (Windows PowerShell 5.1).
+if ([string]::IsNullOrWhiteSpace($Source)) {
+    $Source = Join-Path $PSScriptRoot '..\src\PPTAssistant.App\Assets\PPTA.png'
+}
+if ([string]::IsNullOrWhiteSpace($Destination)) {
+    $Destination = Join-Path $PSScriptRoot '..\src\PPTAssistant.App\Assets\PPTA.ico'
+}
 
 $sourcePath = (Resolve-Path -LiteralPath $Source).Path
 $destinationPath = [IO.Path]::GetFullPath($Destination)

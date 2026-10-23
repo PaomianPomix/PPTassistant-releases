@@ -6,7 +6,7 @@ using System.Windows.Media;
 
 namespace PPTAssistant.App;
 
-/// <summary>设置窗口的局部设计语言；不改变放映工具栏的主题与尺寸。</summary>
+/// <summary>设置窗口与独立白板共用的 Notion 风格；放映工具栏使用自己的主题。</summary>
 internal static class SettingsUi
 {
     public static Brush Text { get; } = Brush("#37352F");
@@ -277,15 +277,28 @@ internal static class SettingsUi
               <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
                   <Grid Background="Transparent">
-                    <Track x:Name="PART_Track" IsDirectionReversed="True" Orientation="Vertical">
-                      <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False"/></Track.DecreaseRepeatButton>
+                    <Track x:Name="PART_Track" IsDirectionReversed="True" Orientation="{TemplateBinding Orientation}">
+                      <Track.DecreaseRepeatButton><RepeatButton x:Name="PageDecrease" Command="{x:Static ScrollBar.PageUpCommand}" Opacity="0" Focusable="False"/></Track.DecreaseRepeatButton>
                       <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb"><Border x:Name="Grip" Background="#CCC9C1" CornerRadius="3" Margin="2"/><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Background" Value="#A6A299"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
-                      <Track.IncreaseRepeatButton><RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False"/></Track.IncreaseRepeatButton>
+                      <Track.IncreaseRepeatButton><RepeatButton x:Name="PageIncrease" Command="{x:Static ScrollBar.PageDownCommand}" Opacity="0" Focusable="False"/></Track.IncreaseRepeatButton>
                     </Track>
                   </Grid>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="Orientation" Value="Horizontal">
+                      <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                      <Setter TargetName="PageDecrease" Property="Command" Value="{x:Static ScrollBar.PageLeftCommand}"/>
+                      <Setter TargetName="PageIncrease" Property="Command" Value="{x:Static ScrollBar.PageRightCommand}"/>
+                    </Trigger>
+                  </ControlTemplate.Triggers>
                 </ControlTemplate>
               </Setter.Value>
             </Setter>
+            <Style.Triggers>
+              <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto"/>
+                <Setter Property="Height" Value="14"/>
+              </Trigger>
+            </Style.Triggers>
           </Style>
         </ResourceDictionary>
         """;

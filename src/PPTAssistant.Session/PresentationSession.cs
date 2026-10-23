@@ -21,13 +21,13 @@ public sealed class PresentationSession : IDisposable
     private InputDeviceKind _strokeBufferDevice = InputDeviceKind.Unknown;
     private readonly IWriteBackPrompt? _prompt;
 
-    
+
     private readonly PenStyleState _pen;
 
     /// <summary>当前这一笔的样式快照（**起笔时**取，落盘用它——中途改宽不影响已写笔画）。</summary>
     private PenStyleSnapshot _strokeStyle;
 
-    
+
     private WriteBackMode _writeBackMode;
 
     /// <summary>兜底对账周期（见 <see cref="Start"/> 里的说明）。</summary>
@@ -47,10 +47,12 @@ public sealed class PresentationSession : IDisposable
     private readonly ThumbnailService _thumbnailService;
     private PptHost? _subscribedHost;
     private ScreenInfo? _showScreen;
+    private InputMode _whiteboardReturnMode;
+    private int _showCommandGeneration;
     private bool _started;
     private bool _disposed;
 
-    
+
 
     public PresentationSession(
         PptHostWatcher watcher,
@@ -88,16 +90,99 @@ public sealed class PresentationSession : IDisposable
     /// <summary>当前状态。</summary>
     public SessionState State { get; private set; } = SessionState.Idle;
 
+    /// <summary>放映工具是否因白板而挂起；宿主放映状态仍继续对账。</summary>
+    public bool IsWhiteboardOpen { get; private set; }
+
+    /// <summary>当前放映所在屏幕；未进入放映时为 null。</summary>
+    public ScreenInfo? ShowScreen => _showScreen;
+
+    /// <summary>临时收起放映工具，保留当前页墨迹和旁路日志。必须在 UI 线程调用。</summary>
+    public bool SuspendForWhiteboard()
+    {
+        if (_disposed || State != SessionState.Presenting || _showScreen is null)
+        {
+            return false;
+        }
+
+        if (IsWhiteboardOpen)
+        {
+            return true;
+        }
+
+        _whiteboardReturnMode = _overlay.Mode;
+        IsWhiteboardOpen = true;
+        _showCommandGeneration++;
+
+        // 接口 Hide 会先收完当前笔画并注销全局笔重定向；不清墨迹、不结束 PPT 日志。
+        _overlay.Hide();
+        HideAuxiliaryViews();
+        _toolbar.Hide();
+        _overlay.SetInputExclusion(null);
+        _trace?.Invoke("[session] 打开白板：放映工具已挂起，PPT 页与板书保留");
+        return true;
+    }
+
+    /// <summary>白板收起后恢复仍在进行的放映；放映已结束时走正常散场收尾。</summary>
+    public void ResumeFromWhiteboard()
+    {
+        if (_disposed || !IsWhiteboardOpen || State != SessionState.Presenting)
+        {
+            return;
+        }
+
+        var host = _watcher.Host;
+        var state = host?.ReadShowState();
+        if (host is null || state is not { IsSpeakerShow: true })
+        {
+            HandleShowEnd();
+            return;
+        }
+
+        // 白板期间可能由外部遥控器翻页，且 COM 的翻页事件可能丢失；恢复前再核对一次。
+        UpdateCurrentPage(state.SlideIndex, state.SlideCount);
+        var screen = ResolveShowScreen(host) ?? _showScreen;
+        if (screen is null)
+        {
+            return;
+        }
+
+        // 不同比例的显示器不能复用旧屏幕坐标；原笔迹仍保存在 PPT 旁路日志中。
+        if (_overlay.Viewport.Width != screen.Value.Bounds.Width || _overlay.Viewport.Height != screen.Value.Bounds.Height)
+        {
+            _overlay.ClearInk();
+        }
+
+        _showScreen = screen;
+        _overlay.Mode = _whiteboardReturnMode;
+        ApplyPenToOverlay();
+        _overlay.ShowOn(screen.Value);
+        if (_geometry is { } geometry)
+        {
+            _geometry = new SlideShowGeometry(_overlay.Viewport, geometry.Slide, geometry.ClipToContent);
+        }
+
+        _toolbar.SetPenMode(_whiteboardReturnMode == InputMode.Pen);
+        _toolbar.SetEraserMode(_whiteboardReturnMode == InputMode.Erase);
+        _toolbar.SetStatus(null);
+        _toolbar.ShowOn(screen.Value);
+        IsWhiteboardOpen = false;
+        _pageTurnDebouncer.Reset();
+        _overlay.EnsureOnTop();
+        _toolbar.EnsureOnTop();
+        SyncInputExclusion();
+        _trace?.Invoke($"[session] 返回放映：第 {_currentPageIndex} 页，输入模式 {_whiteboardReturnMode}");
+    }
+
     /// <summary>状态迁移事件（托盘提示 / 日志用）。</summary>
     public event EventHandler<SessionState>? StateChanged;
 
     /// <summary>当前已挂接的宿主（可能为 null）。</summary>
     public PptHost? Host => _watcher.Host;
 
-    
+
     public double PenWidthDips => _pen.WidthDips;
 
-    
+
     public InkColor PenColor => _pen.Color;
 
     /// <summary>最近使用的笔色（新色顶置）。</summary>
@@ -109,7 +194,7 @@ public sealed class PresentationSession : IDisposable
     /// <summary>当前写回模式。</summary>
     public WriteBackMode WriteBackMode => _writeBackMode;
 
-    
+
     public void SetWriteBackMode(WriteBackMode mode)
     {
         if (_writeBackMode == mode)
@@ -121,13 +206,13 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 写回模式 → {mode}");
     }
 
-    
+
     public void SetAlwaysRoutePenToInk(bool alwaysRoute)
     {
         _overlay.AlwaysRoutePenToInk = alwaysRoute;
     }
 
-    
+
 
     public void SetPenWidth(double widthDips)
     {
@@ -140,7 +225,7 @@ public sealed class PresentationSession : IDisposable
         RaisePenAppearance();
     }
 
-    
+
     public void SetPenColor(InkColor color)
     {
         var changed = _pen.SetColor(color);
@@ -168,12 +253,12 @@ public sealed class PresentationSession : IDisposable
         _watcher.HostAttached += OnHostAttached;
         _watcher.HostLost += OnHostLost;
 
-        
-        
-        
-        
-        
-        
+
+
+
+
+
+
         _reconcileTimer = new Timer(_ => RunOnUi(ReconcilePeriodic), null, ReconcileInterval, ReconcileInterval);
 
         _overlay.StrokeBegan += OnStrokeBegan;
@@ -219,8 +304,8 @@ public sealed class PresentationSession : IDisposable
 
         _watcher.Start();
 
-        
-        
+
+
         var pruned = SidecarStore.PruneOlderThan(_options.SidecarRetention, _options.SidecarRoot);
         if (pruned > 0)
         {
@@ -288,7 +373,7 @@ public sealed class PresentationSession : IDisposable
 
     private void OnHostAttached(object? sender, PptHost host)
     {
-        
+
         DetachHostHandlers();
         _subscribedHost = host;
         host.SlideShowBegin += OnSlideShowBegin;
@@ -296,16 +381,16 @@ public sealed class PresentationSession : IDisposable
         host.SlideShowEnd += OnSlideShowEnd;
         host.PresentationCloseFinal += OnPresentationCloseFinal;
 
-        
+
         _toolbar.SetNativeInkSupported(host.Info.IsNativeInkSupported);
 
         SetState(SessionState.Attached);
         _trace?.Invoke($"[session] 宿主就绪：{host.Info}");
 
-        
-        
-        
-        
+
+
+
+
         ReconcileShowState(host, "挂接对账");
     }
 
@@ -315,6 +400,7 @@ public sealed class PresentationSession : IDisposable
         {
             DetachHostHandlers();
             LeavePresentationStage("宿主已退出");
+            CloseSidecarLog("hostLost");
             _toolbar.SetNativeInkSupported(true);
             SetState(SessionState.Idle);
         });
@@ -337,7 +423,7 @@ public sealed class PresentationSession : IDisposable
             return;
         }
 
-        
+
         var state = host.ReadShowState();
         var showType = state.IsShowActive ? state.ShowType : 0;
         if (!ShowGate.IsAccepted(showType))
@@ -353,7 +439,7 @@ public sealed class PresentationSession : IDisposable
         EnterPresentationStage(slideIndex, slideCount, state.PresentationPath);
     }
 
-    
+
 
     private void ReconcilePeriodic()
     {
@@ -431,7 +517,7 @@ public sealed class PresentationSession : IDisposable
 
         // 开场一律回到默认鼠标态：「哪有上课一进 ppt 就要板书的」。
         _overlay.Mode = InputMode.Mouse;
-        
+
         ApplyPenToOverlay();
         // 输入分流策略也要下发：配置里改了却没人读，是最难发现的那类 bug（日志显示已生效，行为却没变）。
         _overlay.IgnoreTouchWhenPenPresent = _options.IgnoreTouchWhenPenPresent;
@@ -449,8 +535,8 @@ public sealed class PresentationSession : IDisposable
         _toolbar.EnsureOnTop();
         SyncInputExclusion();
 
-        
-        
+
+
         StartSidecarLog(host, presentationPath, slideSize: TryReadSlideSize(host));
         _currentPageIndex = ClampForDisplay(slideIndex, slideCount);
         _sidecar?.AppendPage(_currentPageIndex, slideCount);
@@ -477,24 +563,20 @@ public sealed class PresentationSession : IDisposable
             }
         }
 
-        _toolbar.UpdateSlidePosition(ClampForDisplay(e.SlideIndex, e.SlideCount), e.SlideCount);
+        UpdateCurrentPage(e.SlideIndex, e.SlideCount);
 
-        
-        _currentPageIndex = ClampForDisplay(e.SlideIndex, e.SlideCount);
-        _sidecar?.AppendPage(_currentPageIndex, e.SlideCount);
-        _erasedOnPage = 0;
-
-        
-        
-        
-        _overlay.ClearInk();
+        if (IsWhiteboardOpen)
+        {
+            _trace?.Invoke($"[session] 白板期间后台翻页 → {e.SlideIndex}/{e.SlideCount}");
+            return;
+        }
 
         // 宿主的放映窗口也是置顶窗口，翻页时会重新置顶，可能把我们的浮层压下去。
         _overlay.EnsureOnTop();
         _toolbar.EnsureOnTop();
         SyncInputExclusion();
 
-        
+
         if (_thumbnails is not null && _thumbnails.IsVisible)
         {
             var current = ClampForDisplay(e.SlideIndex, e.SlideCount);
@@ -505,6 +587,27 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 翻页 → {e.SlideIndex}/{e.SlideCount}（页码来源：{e.IndexSource}）");
     }
 
+    private void UpdateCurrentPage(int slideIndex, int slideCount)
+    {
+        // COM 暂时读不到页号时不把仍在书写的页改成 0；同页重复通知也不清除板书。
+        var nextPage = ClampForDisplay(slideIndex, slideCount);
+        if (nextPage <= 0)
+        {
+            return;
+        }
+
+        if (_currentPageIndex != nextPage)
+        {
+            // ClearInk 会收尾正在书写的笔画，必须先做，才能把最后一笔记入原页。
+            _overlay.ClearInk();
+            _currentPageIndex = nextPage;
+            _sidecar?.AppendPage(_currentPageIndex, slideCount);
+            _erasedOnPage = 0;
+        }
+
+        _toolbar.UpdateSlidePosition(nextPage, slideCount);
+    }
+
     private void HandleShowEnd()
     {
         // 先取快照：LeavePresentationStage 会清空墨迹（并归零计数）。
@@ -513,7 +616,7 @@ public sealed class PresentationSession : IDisposable
 
         LeavePresentationStage("散场");
 
-        
+
         var sidecarPath = _sidecar?.Path;
         var sidecarStrokes = _sidecar?.StrokeCount ?? 0;
         CloseSidecarLog("showEnd");
@@ -524,18 +627,18 @@ public sealed class PresentationSession : IDisposable
             $"[session] 散场：已收回覆盖层与工具栏（本次板书 {strokes} 笔 / {points} 采样点）"
             + (sidecarStrokes > 0 ? $"；{sidecarStrokes} 笔已落盘 → {sidecarPath}" : "；本次没有板书需要落盘"));
 
-        
+
         if (sidecarPath is not null && sidecarStrokes == 0)
         {
             SidecarStore.Delete(sidecarPath);
             return;
         }
 
-        
+
         ResolvePendingInk(sidecarPath);
     }
 
-    
+
 
     private void ResolvePendingInk(string? sidecarPath)
     {
@@ -553,7 +656,7 @@ public sealed class PresentationSession : IDisposable
 
         if (!session.HasInk)
         {
-            
+
             SidecarStore.Delete(sidecarPath);
             _toolbar.SetStatus("本次板书已全部擦除，无需写回");
             _trace?.Invoke($"[writeback] 本次板书已全部擦除（erase 记录生效），删除空日志：{sidecarPath}");
@@ -608,6 +711,11 @@ public sealed class PresentationSession : IDisposable
 
     private void OnNextSlideRequested(object? sender, EventArgs e)
     {
+        if (IsWhiteboardOpen)
+        {
+            return;
+        }
+
         if (!_pageTurnDebouncer.TryAccept())
         {
             _trace?.Invoke("[session] 翻页请求被 30ms 防抖丢弃");
@@ -619,6 +727,11 @@ public sealed class PresentationSession : IDisposable
 
     private void OnPreviousSlideRequested(object? sender, EventArgs e)
     {
+        if (IsWhiteboardOpen)
+        {
+            return;
+        }
+
         if (!_pageTurnDebouncer.TryAccept())
         {
             _trace?.Invoke("[session] 翻页请求被 30ms 防抖丢弃");
@@ -631,7 +744,7 @@ public sealed class PresentationSession : IDisposable
     private void OnExitShowRequested(object? sender, EventArgs e)
         => ExecuteShowCommand("退出放映", static host => host.EndShow());
 
-    
+
 
     private void SyncInputExclusion()
     {
@@ -661,7 +774,7 @@ public sealed class PresentationSession : IDisposable
 
     private void OnPenModeRequested(object? sender, bool penMode)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
@@ -673,11 +786,11 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 输入模式 → {(penMode ? "笔态" : "鼠标态")}");
     }
 
-    
+
 
     private void OnEraseModeRequested(object? sender, EventArgs e)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
@@ -691,10 +804,15 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke("[session] 输入模式 → 橡皮态（整笔局部擦除，长按清页）");
     }
 
-    
+
 
     private void ApplyInputMode(InputMode mode)
     {
+        if (IsWhiteboardOpen)
+        {
+            return;
+        }
+
         _overlay.Mode = mode;
         _toolbar.SetPenMode(mode == InputMode.Pen);
         _toolbar.SetEraserMode(mode == InputMode.Erase);
@@ -705,7 +823,7 @@ public sealed class PresentationSession : IDisposable
     /// <summary>覆盖层把自己置顶之后，把工具栏抬回最上层（见 <see cref="ApplyInputMode"/> 的说明）。</summary>
     private void OnOverlayModeChanged(object? sender, InputMode mode)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
@@ -713,17 +831,17 @@ public sealed class PresentationSession : IDisposable
         _toolbar.EnsureOnTop();
     }
 
-    
+
 
     private void OnClearPageRequested(object? sender, EventArgs e)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
 
-        _sidecar?.AppendClearPage(_currentPageIndex);
         _overlay.ClearInk();
+        _sidecar?.AppendClearPage(_currentPageIndex);
         _erasedOnPage = 0;
         _toolbar.SetStatus("已清空本页板书");
         SyncInputExclusion();
@@ -738,7 +856,7 @@ public sealed class PresentationSession : IDisposable
     /// </summary>
     private void OnStrokesErased(object? sender, InkStrokesErasedEventArgs e)
     {
-        if (State != SessionState.Presenting || e.StrokeIds.Count == 0)
+        if (State != SessionState.Presenting || IsWhiteboardOpen || e.StrokeIds.Count == 0)
         {
             return;
         }
@@ -754,10 +872,10 @@ public sealed class PresentationSession : IDisposable
             + (_sidecar is not null ? "旁路日志已记 erase）" : "⚠ 无旁路日志，写回时这些笔会重新出现）"));
     }
 
-    
+
     private void OnMagnifierToggleRequested(object? sender, EventArgs e)
     {
-        if (State != SessionState.Presenting || _showScreen is not { } screen)
+        if (State != SessionState.Presenting || IsWhiteboardOpen || _showScreen is not { } screen)
         {
             return;
         }
@@ -788,10 +906,10 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 放大镜开启：{_magnifier.Zoom:0.0}× 屏={screen.DeviceName}");
     }
 
-    
+
     private void OnThumbnailPanelToggleRequested(object? sender, ThumbnailSide side)
     {
-        if (State != SessionState.Presenting || _showScreen is not { } screen)
+        if (State != SessionState.Presenting || IsWhiteboardOpen || _showScreen is not { } screen)
         {
             return;
         }
@@ -802,7 +920,7 @@ public sealed class PresentationSession : IDisposable
             return;
         }
 
-        
+
         if (_thumbnails.IsVisible && _thumbnails.Side == side)
         {
             _thumbnails.Hide();
@@ -823,10 +941,10 @@ public sealed class PresentationSession : IDisposable
             $"[session] 缩略图侧栏开启：{state.SlideCount} 页，停在{(side == ThumbnailSide.Left ? "左" : "右")}侧，窗口半径 {_options.ThumbnailRadius}");
     }
 
-    
+
     private void OnThumbnailSlideActivated(object? sender, int oneBasedIndex)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
@@ -841,7 +959,7 @@ public sealed class PresentationSession : IDisposable
         _thumbnails?.SetCurrentSlide(oneBasedIndex);
     }
 
-    
+
     private void OnThumbnailPanelCloseRequested(object? sender, EventArgs e)
     {
         _thumbnails?.Hide();
@@ -849,12 +967,12 @@ public sealed class PresentationSession : IDisposable
         SyncInputExclusion();
     }
 
-    
 
-    
+
+
     private void OnPaletteToggleRequested(object? sender, EventArgs e)
     {
-        if (State != SessionState.Presenting || _showScreen is not { } screen)
+        if (State != SessionState.Presenting || IsWhiteboardOpen || _showScreen is not { } screen)
         {
             return;
         }
@@ -881,14 +999,14 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 色板开启：当前 {_pen.Color.ToHex()}，最近 {_pen.Recent.Count} 色");
     }
 
-    
+
     private void OnPaletteColorPicked(object? sender, InkColor color)
     {
         SetPenColor(color);
         _trace?.Invoke($"[session] 笔色 → {color.ToHex()}（下一笔生效）");
     }
 
-    
+
     private void OnPaletteCloseRequested(object? sender, EventArgs e) => HidePalette();
 
     private void HidePalette()
@@ -898,12 +1016,12 @@ public sealed class PresentationSession : IDisposable
         SyncInputExclusion();
     }
 
-    
 
-    
+
+
     private void OnPenBrushToggleRequested(object? sender, EventArgs e)
     {
-        if (State != SessionState.Presenting || _showScreen is not { } screen)
+        if (State != SessionState.Presenting || IsWhiteboardOpen || _showScreen is not { } screen)
         {
             return;
         }
@@ -928,7 +1046,7 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 笔刷开启：当前 {PenWidthRange.Format(_pen.WidthDips)} DIP");
     }
 
-    
+
     private void OnBrushValueChanged(object? sender, double value)
     {
         if (_pen.SetWidth(value))
@@ -937,7 +1055,7 @@ public sealed class PresentationSession : IDisposable
         }
     }
 
-    
+
     private void OnBrushValueCommitted(object? sender, double value)
     {
         _pen.SetWidth(value);
@@ -945,7 +1063,7 @@ public sealed class PresentationSession : IDisposable
         _trace?.Invoke($"[session] 笔宽 → {PenWidthRange.Format(_pen.WidthDips)} DIP（下一笔生效）");
     }
 
-    
+
     private void OnPenBrushCloseRequested(object? sender, EventArgs e) => HidePenBrush();
 
     private void HidePenBrush()
@@ -997,13 +1115,19 @@ public sealed class PresentationSession : IDisposable
 
     private void ExecuteShowCommand(string name, Func<PptHost, bool> command)
     {
-        if (State != SessionState.Presenting)
+        if (State != SessionState.Presenting || IsWhiteboardOpen)
         {
             return;
         }
 
+        var generation = _showCommandGeneration;
         RunOnUi(() =>
         {
+            if (_disposed || State != SessionState.Presenting || IsWhiteboardOpen || generation != _showCommandGeneration)
+            {
+                return;
+            }
+
             var host = _watcher.Host;
             if (host is null)
             {
@@ -1026,9 +1150,9 @@ public sealed class PresentationSession : IDisposable
             return null;
         }
 
-        
-        
-        
+
+
+
         var comBounds = host.ReadShowWindowBoundsDips();
         ScreenInfo? picked = comBounds is null ? null : ScreenSelector.PickBestForComRect(screens, comBounds.Value);
         picked ??= ScreenSelector.PickPrimary(screens) ?? screens[0];
@@ -1040,22 +1164,13 @@ public sealed class PresentationSession : IDisposable
 
     private void LeavePresentationStage(string reason)
     {
+        _showCommandGeneration++;
         if (State == SessionState.Presenting)
         {
             _trace?.Invoke($"[session] 收回浮层（{reason}）");
         }
 
-        
-        _magnifier?.Hide();
-        _toolbar.SetMagnifierActive(false);
-        _thumbnails?.Hide();
-        _toolbar.SetThumbnailPanelActive(false);
-
-        
-        _penPalette?.Hide();
-        _toolbar.SetPaletteActive(false);
-        _penBrush?.Hide();
-        _toolbar.SetPenBrushActive(false);
+        HideAuxiliaryViews();
 
         _overlay.Mode = InputMode.Mouse;
         _overlay.ClearInk();
@@ -1065,9 +1180,25 @@ public sealed class PresentationSession : IDisposable
         _erasedOnPage = 0;
         _toolbar.Hide();
         _showScreen = null;
+        IsWhiteboardOpen = false;
 
         // 缩略图缓存按课件生命周期有效：散场就让它失效（换课件时页号含义会变）。
         _thumbnailService.ResetSlideCache();
+    }
+
+    private void HideAuxiliaryViews()
+    {
+
+        _magnifier?.Hide();
+        _toolbar.SetMagnifierActive(false);
+        _thumbnails?.Hide();
+        _toolbar.SetThumbnailPanelActive(false);
+
+
+        _penPalette?.Hide();
+        _toolbar.SetPaletteActive(false);
+        _penBrush?.Hide();
+        _toolbar.SetPenBrushActive(false);
     }
 
     private void DetachHostHandlers()
@@ -1096,7 +1227,7 @@ public sealed class PresentationSession : IDisposable
         _ui.Post(action);
     }
 
-    
+
 
     private static int ClampForDisplay(int slideIndex, int slideCount)
     {
@@ -1122,16 +1253,16 @@ public sealed class PresentationSession : IDisposable
 
     private void OnStrokeBegan(object? sender, InkStrokeEventArgs e)
     {
-        
-        
-        
-        
+
+
+
+
         _strokeBuffer.Clear();
         _strokeBuffer.AddRange(e.Points);
         _strokeBufferDevice = e.Device;
 
-        
-        
+
+
         _strokeStyle = _pen.Snapshot();
 
         _trace?.Invoke($"[ink] 起笔 #{e.StrokeId} 设备={e.Device} 压力={(e.Points.Count > 0 && e.Points[0].HasPressure ? e.Points[0].Pressure.ToString("0.00") : "无")}");
@@ -1148,7 +1279,7 @@ public sealed class PresentationSession : IDisposable
         _strokeBuffer.AddRange(e.Points);
     }
 
-    
+
 
     private void OnStrokeEnded(object? sender, InkStrokeEventArgs e)
     {
@@ -1159,7 +1290,7 @@ public sealed class PresentationSession : IDisposable
         var slideStroke = _sidecar is null ? null : ConvertToSlideStroke(points);
         if (_sidecar is not null && slideStroke is not null)
         {
-            
+
             _sidecar.AppendStroke(_currentPageIndex, slideStroke, device.ToString(), e.StrokeId);
         }
 
@@ -1187,9 +1318,9 @@ public sealed class PresentationSession : IDisposable
             return null;
         }
 
-        
-        
-        
+
+
+
         return ScreenStrokeConverter.Convert(geometry, points, _strokeStyle.WidthDips, _strokeStyle.Color);
     }
 
@@ -1242,7 +1373,7 @@ public sealed class PresentationSession : IDisposable
         }
     }
 
-    
+
     private void CloseSidecarLog(string reason)
     {
         if (_sidecar is null)

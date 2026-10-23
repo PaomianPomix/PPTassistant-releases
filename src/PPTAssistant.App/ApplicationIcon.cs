@@ -7,10 +7,32 @@ namespace PPTAssistant.App;
 
 internal static class ApplicationIcon
 {
-    public static void SetWindowDefault()
+    private static readonly Lazy<BitmapSource> CachedWindowIcon = new(() =>
     {
         var icon = BitmapFrame.Create(new Uri("pack://application:,,,/PPTAssistant;component/Assets/PPTA.ico"));
         icon.Freeze();
+        return icon;
+    });
+    private static readonly Lazy<BitmapSource> CachedBrandImage = new(() =>
+    {
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = 96;
+        image.UriSource = new Uri("pack://application:,,,/PPTAssistant;component/Assets/PPTA.png");
+        image.EndInit();
+        image.Freeze();
+        return image;
+    });
+
+    public static BitmapSource WindowIcon => CachedWindowIcon.Value;
+
+    /// <summary>侧栏品牌图，缓存 96 px 透明位图以适配高 DPI 显示，不改动源图构图。</summary>
+    public static BitmapSource BrandImage => CachedBrandImage.Value;
+
+    public static void SetWindowDefault()
+    {
+        var icon = WindowIcon;
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
             new RoutedEventHandler((sender, _) =>
             {

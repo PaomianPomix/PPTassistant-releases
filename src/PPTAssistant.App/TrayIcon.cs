@@ -19,6 +19,9 @@ public enum TrayCommand
     /// <summary>主动处理自启时延后的残留板书恢复。</summary>
     RecoverPendingInk = 5,
 
+    /// <summary>打开独立白板，无需启动 PowerPoint。</summary>
+    OpenWhiteboard = 6,
+
     /// <summary>退出程序。</summary>
     Exit = 3,
 }
@@ -211,6 +214,7 @@ public sealed class TrayIcon : IDisposable
         {
             _ = AppendMenu(menu, MfString | MfGrayed, 0, Truncate(_statusProvider(), 60));
             _ = AppendMenu(menu, MfSeparator, 0, null);
+            _ = AppendMenu(menu, MfString, (int)TrayCommand.OpenWhiteboard, "打开白板");
             _ = AppendMenu(menu, MfString, (int)TrayCommand.OpenSettings, "设置…");
             _ = AppendMenu(menu, MfString, (int)TrayCommand.RecoverPendingInk, "恢复上次板书…");
             _ = AppendMenu(menu, MfString, (int)TrayCommand.OpenLogDirectory, "打开日志目录");
