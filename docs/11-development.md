@@ -67,6 +67,8 @@ dotnet run --project .\src\PPTAssistant.App\PPTAssistant.App.csproj -c Debug --n
 
 有仓库写入权限的维护者也可在 GitHub 的 **Actions → Build Windows installer → Run workflow** 输入版本号构建。工作流在 Windows 上运行单元测试、生成安装包，并检查安装、启动、卸载和用户数据保留；成功后可下载包含安装包及校验和的构建产物。
 
+发布已验证的安装包时，运行 **Actions → Publish Windows release**，填写版本号、成功构建的运行 ID 和对应源码提交 SHA。工作流会验证构建结果与校验和，将同一安装包上传到正式 Release；已有版本不会被覆盖。
+
 如需单独发布应用目录，可执行：
 
 ```powershell

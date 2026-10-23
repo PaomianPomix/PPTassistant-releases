@@ -1,0 +1,150 @@
+name: Publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (major.minor.patch)
+        type: string
+        required: true
+        default: '1.0.0'
+      build_run_id:
+        description: Successful Build Windows installer run ID
+        type: string
+        required: true
+      source_sha:
+        description: Full commit SHA used by the successful build
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+    steps:
+      - name: Validate source build and release destination
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RELEASE_VERSION -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Version must be major.minor.patch.' }
+          foreach ($part in $env:RELEASE_VERSION.Split('.')) {
+            if ([long] $part -gt 65534) { throw 'Version components must be between 0 and 65534.' }
+          }
+          if ($env:BUILD_RUN_ID -cnotmatch '^[1-9][0-9]*$') { throw 'Build run ID must be a positive integer.' }
+          if ($env:SOURCE_SHA -cnotmatch '^[0-9a-fA-F]{40}$') { throw 'Source SHA must be a full 40-character commit SHA.' }
+
+          $repo = $env:GITHUB_REPOSITORY
+          $runJson = gh api "repos/$repo/actions/runs/$env:BUILD_RUN_ID"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to read the source build run.' }
+          $run = $runJson | ConvertFrom-Json
+          if ($run.repository.full_name -ne $repo -or $run.head_repository.full_name -ne $repo) { throw 'The source build must belong to this repository.' }
+          if ($run.status -ne 'completed' -or $run.conclusion -ne 'success') { throw 'The source build did not complete successfully.' }
+          if ($run.head_sha -ne $env:SOURCE_SHA) { throw 'The source build SHA does not match source_sha.' }
+          if (($run.path -split '@')[0] -cne '.github/workflows/build-windows.yml') { throw 'The run did not use the Windows installer workflow.' }
+          $workflowJson = gh api "repos/$repo/actions/workflows/$($run.workflow_id)"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify the source workflow.' }
+          if (($workflowJson | ConvertFrom-Json).path -cne '.github/workflows/build-windows.yml') { throw 'Unexpected source workflow path.' }
+
+          $tag = 'v' + $env:RELEASE_VERSION
+          $releasePagesJson = gh api --paginate --slurp "repos/$repo/releases?per_page=100"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check existing releases.' }
+          foreach ($page in ($releasePagesJson | ConvertFrom-Json)) {
+            foreach ($release in $page) {
+              if ($release.tag_name -ceq $tag) { throw "Release $tag already exists, including any draft. Resolve it manually before publishing." }
+            }
+          }
+
+          $refsJson = gh api "repos/$repo/git/matching-refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check the release tag.' }
+          $matchingRefs = @($refsJson | ConvertFrom-Json | Where-Object { $_.ref -ceq "refs/tags/$tag" })
+          if ($matchingRefs.Count -gt 0) {
+            $object = $matchingRefs[0].object
+            for ($depth = 0; $object.type -eq 'tag' -and $depth -lt 10; $depth++) {
+              $tagJson = gh api "repos/$repo/git/tags/$($object.sha)"
+              if ($LASTEXITCODE -ne 0) { throw 'Unable to resolve the existing annotated tag.' }
+              $object = ($tagJson | ConvertFrom-Json).object
+            }
+            if ($object.type -ne 'commit' -or $object.sha -ne $env:SOURCE_SHA) { throw 'The existing release tag does not point to source_sha.' }
+          }
+
+      - name: Download the verified build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PPTAssistant-windows-${{ inputs.version }}
+          path: artifacts/release
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify installer and publish release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $version = $env:RELEASE_VERSION
+          $tag = 'v' + $version
+          $repo = $env:GITHUB_REPOSITORY
+          $releaseRoot = (Resolve-Path 'artifacts/release').Path
+          $installerName = "PPTAssistant-$version-win-x64-Setup.exe"
+          $installer = Join-Path $releaseRoot $installerName
+          $checksumFile = Join-Path $releaseRoot 'SHA256SUMS.txt'
+          $entries = @(Get-ChildItem -LiteralPath $releaseRoot -Force)
+          if ($entries.Count -ne 2) { throw 'The artifact must contain only the installer and SHA256SUMS.txt.' }
+          foreach ($entry in $entries) {
+            if ($entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Artifact directories and links are not allowed.' }
+            if ($entry.Name -cne $installerName -and $entry.Name -cne 'SHA256SUMS.txt') { throw "Unexpected artifact: $($entry.Name)" }
+          }
+          $lines = [IO.File]::ReadAllLines($checksumFile)
+          if ($lines.Count -ne 1 -or $lines[0] -cnotmatch '^(?<hash>[0-9a-fA-F]{64})  (?<file>[^\\/]+)$') { throw 'Expected one SHA256SUMS entry with a plain filename.' }
+          $expectedHash = $Matches.hash
+          if ($Matches.file -cne $installerName) { throw 'The checksum entry does not name the expected installer.' }
+          $actualHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          if ($actualHash -ne $expectedHash) { throw 'Installer SHA256 does not match SHA256SUMS.txt.' }
+          $actualVersion = (Get-Item -LiteralPath $installer).VersionInfo.FileVersion.Trim()
+          if ($actualVersion -cne "$version.0") { throw "Unexpected installer version: $actualVersion" }
+
+          $notes = @"
+          PPTAssistant 是 Windows 上的 PowerPoint 放映助手。
+
+          - 提供书写、擦除、翻页、缩略图导航和放大镜。
+          - 支持按幻灯片保存板书、写入课件前自动备份，以及异常退出后的板书恢复。
+          - 提供托盘设置、界面缩放、可选开机自启和手动检查更新。
+
+          使用条件：Windows 10/11 x64，桌面版 PowerPoint 2016 或更高版本；推荐使用已保存的 .pptx 文件。安装包包含 .NET 运行时，无需另装 .NET。
+
+          下载并运行 $installerName。安装后从开始菜单启动 PPTAssistant，再按 F5 进入 PowerPoint 全屏放映。卸载会保留当前用户的配置、板书和备份。
+
+          安装包尚未进行代码签名，Windows 可能显示未知发布者提示。可使用 SHA256SUMS.txt 核对下载文件。
+          "@
+          $notesFile = Join-Path $env:RUNNER_TEMP 'PPTAssistant-release-notes.md'
+          [IO.File]::WriteAllText($notesFile, $notes, [Text.UTF8Encoding]::new($false))
+
+          gh release create $tag --repo $repo --target $env:SOURCE_SHA --draft --title "PPTAssistant $version" --notes-file $notesFile
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create the draft release. Existing releases are never overwritten.' }
+          gh release upload $tag $installer $checksumFile --repo $repo
+          if ($LASTEXITCODE -ne 0) { throw 'Asset upload failed. The draft is retained for manual inspection.' }
+          $releaseJson = gh release view $tag --repo $repo --json isDraft,assets,url
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to verify the uploaded draft.' }
+          $release = $releaseJson | ConvertFrom-Json
+          if (-not $release.isDraft -or $release.assets.Count -ne 2) { throw 'Unexpected draft state or asset count.' }
+          foreach ($path in @($installer, $checksumFile)) {
+            $file = Get-Item -LiteralPath $path
+            $assets = @($release.assets | Where-Object { $_.name -ceq $file.Name })
+            if ($assets.Count -ne 1 -or $assets[0].size -ne $file.Length) { throw "Uploaded asset is missing or has the wrong size: $($file.Name)" }
+          }
+          gh release edit $tag --repo $repo --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to publish the verified draft release.' }
+          "Published [PPTAssistant $version]($($release.url)) from commit $env:SOURCE_SHA." | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
