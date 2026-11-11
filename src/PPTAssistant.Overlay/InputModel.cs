@@ -44,8 +44,8 @@ public readonly record struct StrokePoint(
     /// <summary>无压感硬件的压力值（WPF 在无压力数据时报 0.5，这里统一压到 0）。</summary>
     public const float NoPressure = 0f;
 
-    /// <summary>有真实压力数据吗（红外/电容屏的「伪压力」不算）。</summary>
-    public bool HasPressure => Pressure > 0f;
+    /// <summary>笔设备的零压力也是有效压力，避免起笔/抬笔时回退到基准笔宽。</summary>
+    public bool HasPressure => Device == InputDeviceKind.Pen;
 }
 
 public sealed class InkStrokesErasedEventArgs : EventArgs

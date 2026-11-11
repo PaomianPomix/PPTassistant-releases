@@ -6,7 +6,7 @@
 
 PPTAssistant 是 Windows 上的 PowerPoint 放映助手，也提供无需打开 PowerPoint 的独立白板。启动后驻留系统托盘，在全屏放映时提供书写、擦除、翻页、缩略图导航和放大镜，并可在结束放映时将板书保存到课件。
 
-[下载安装包](https://github.com/PaomianPomix/PPTassistant-releases/releases/latest) · [1.1.0 更新说明](docs/release-notes/1.1.0.md) · [使用指南](docs/10-getting-started.md) · [开发指南](docs/11-development.md) · [配置参考](docs/13-configuration.md)
+[下载安装包](https://github.com/PaomianPomix/PPTassistant-releases/releases/latest) · [1.1.1 更新说明](docs/release-notes/1.1.1.md) · [使用指南](docs/10-getting-started.md) · [开发指南](docs/11-development.md) · [配置参考](docs/13-configuration.md)
 
 ## 功能
 
